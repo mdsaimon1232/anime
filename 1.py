@@ -9,11 +9,14 @@ from telethon import functions, types
 from telethon.tl.types import InputChatUploadedPhoto
 import random
 
-# Configuration
-BASE_PATH = r"F:\anime\english\new"
-DONE_PATH = r"F:\anime\english\done"
-API_ID = 1234567  # Replace with your actual API ID
-API_HASH = 'your_api_hash_here'  # Replace with your actual API Hash
+# Get the directory where the script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Configuration - now using the script directory
+BASE_PATH = SCRIPT_DIR  # Look for folders where script is located
+DONE_PATH = os.path.join(SCRIPT_DIR, "done")  # Create 'done' folder in script directory
+API_ID = 20509864  # Replace with your actual API ID
+API_HASH = '11905c7c10752429a01ceb1b2c42a993'  # Replace with your actual API Hash
 
 def generate_username(channel_name, suffix=None):
     """Generate username from channel name with multiple fallback options"""
@@ -131,7 +134,7 @@ def download_image(img_url, folder_path, anime_name):
 
 def get_anime_folders():
     """
-    Get all folder names in the base path
+    Get all folder names in the base path (script directory)
     """
     anime_folders = []
     
@@ -143,7 +146,9 @@ def get_anime_folders():
         for item in os.listdir(BASE_PATH):
             item_path = os.path.join(BASE_PATH, item)
             if os.path.isdir(item_path):
-                anime_folders.append(item)
+                # Skip the 'done' folder and system folders
+                if item.lower() != 'done' and not item.startswith('.'):
+                    anime_folders.append(item)
                 
     except Exception as e:
         print(f"Error accessing path {BASE_PATH}: {e}")
@@ -152,7 +157,7 @@ def get_anime_folders():
 
 def get_video_files(folder_path):
     """
-    Get all video files from a folder
+    Get all video files from a folder with size checking
     """
     video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm']
     video_files = []
@@ -161,6 +166,14 @@ def get_video_files(folder_path):
         for file in os.listdir(folder_path):
             file_path = os.path.join(folder_path, file)
             if os.path.isfile(file_path) and any(file.lower().endswith(ext) for ext in video_extensions):
+                file_size = os.path.getsize(file_path)
+                file_size_gb = file_size / (1024*1024*1024)
+                
+                # Check if file is too large for Telegram
+                if file_size_gb > 1.9:  # Telegram limit is ~2GB
+                    print(f"⚠️ File too large for Telegram: {file} ({file_size_gb:.2f} GB)")
+                    continue
+                    
                 video_files.append(file_path)
     except Exception as e:
         print(f"Error reading video files from {folder_path}: {e}")
@@ -244,7 +257,7 @@ async def upload_channel_photo(client, channel, image_path):
 
 async def upload_videos_to_channel(client, channel, folder_path):
     """
-    Upload all video files from folder to channel
+    Upload all video files from folder to channel with retry logic and progress monitoring
     """
     video_files = get_video_files(folder_path)
     
@@ -255,32 +268,124 @@ async def upload_videos_to_channel(client, channel, folder_path):
     print(f"🎬 Found {len(video_files)} video files to upload")
     
     uploaded_count = 0
-    for video_file in video_files:
-        try:
-            # Get caption from filename (without extension)
-            caption = os.path.splitext(os.path.basename(video_file))[0]
-            
-            print(f"⬆️ Uploading: {caption}")
-            
-            # Upload the video file
-            await client.send_file(
-                entity=channel.id,
-                file=video_file,
-                caption=caption,
-                supports_streaming=True
-            )
-            
-            uploaded_count += 1
-            print(f"✅ Uploaded: {caption}")
-            
-            # Add a small delay between uploads to avoid rate limiting
-            await asyncio.sleep(2)
-            
-        except Exception as e:
-            print(f"❌ Error uploading {video_file}: {e}")
+    for i, video_file in enumerate(video_files, 1):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Get caption from filename (without extension)
+                caption = os.path.splitext(os.path.basename(video_file))[0]
+                file_size_gb = os.path.getsize(video_file) / (1024*1024*1024)
+                
+                print(f"⬆️ Uploading ({i}/{len(video_files)}): {caption}")
+                print(f"📊 File size: {file_size_gb:.2f} GB")
+                
+                # Progress tracking variables
+                start_time = time.time()
+                last_progress = 0
+                last_time = start_time
+                uploaded_bytes = 0
+                
+                def progress_callback(current, total):
+                    nonlocal last_progress, last_time, uploaded_bytes
+                    current_time = time.time()
+                    uploaded_bytes = current
+                    
+                    percent = (current / total) * 100 if total > 0 else 0
+                    
+                    # Calculate speed every 5 seconds or when significant progress is made
+                    time_diff = current_time - last_time
+                    if time_diff >= 5 or current == total:  # Update every 5 seconds or at completion
+                        progress_diff = current - last_progress
+                        if time_diff > 0:
+                            speed_mbps = (progress_diff * 8) / (time_diff * 1000000)  # Convert to Mbps
+                            speed_mbps_display = min(speed_mbps, 1000)  # Cap display at 1000 Mbps
+                            
+                            time_elapsed = current_time - start_time
+                            if current > 0 and current < total:
+                                # Estimate remaining time
+                                upload_speed = current / time_elapsed  # bytes per second
+                                remaining_bytes = total - current
+                                if upload_speed > 0:
+                                    remaining_seconds = remaining_bytes / upload_speed
+                                    remaining_time = f" | ETA: {remaining_seconds:.0f}s"
+                                else:
+                                    remaining_time = " | ETA: Calculating..."
+                            else:
+                                remaining_time = ""
+                            
+                            print(f"📤 Progress: {percent:.1f}% | Speed: {speed_mbps_display:.2f} Mbps{remaining_time}", end='\r')
+                        
+                        last_progress = current
+                        last_time = current_time
+                
+                # Upload the video file with progress callback
+                await client.send_file(
+                    entity=channel.id,
+                    file=video_file,
+                    caption=caption,
+                    supports_streaming=True,
+                    progress_callback=progress_callback
+                )
+                
+                upload_time = time.time() - start_time
+                speed_gb_h = (file_size_gb / (upload_time / 3600)) if upload_time > 0 else 0
+                
+                uploaded_count += 1
+                print(f"\n✅ Uploaded: {caption} in {upload_time:.1f}s ({speed_gb_h:.2f} GB/h)")
+                
+                break  # Success, break out of retry loop
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 30  # 30, 60, 90 seconds
+                    print(f"⚠️ Upload failed, retrying in {wait_time}s... (Attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                else:
+                    print(f"❌ Failed to upload {video_file} after {max_retries} attempts: {e}")
+        
+        # Increased delay between uploads
+        if i < len(video_files):
+            delay = random.uniform(10, 30)  # 10-30 second delay
+            print(f"⏳ Waiting {delay:.1f} seconds before next upload...")
+            await asyncio.sleep(delay)
     
     print(f"🎉 Upload completed! {uploaded_count}/{len(video_files)} videos uploaded successfully")
     return uploaded_count
+
+async def test_upload_speed(client, channel):
+    """Test upload speed with a small file"""
+    test_file = "test_upload.bin"
+    
+    try:
+        # Create a 5MB test file (smaller for faster testing)
+        print("🧪 Testing upload speed to Telegram servers...")
+        with open(test_file, 'wb') as f:
+            f.write(os.urandom(5 * 1024 * 1024))  # 5MB
+        
+        start_time = time.time()
+        
+        def progress_callback(current, total):
+            percent = (current / total) * 100
+            print(f"🧪 Speed Test Progress: {percent:.1f}%", end='\r')
+        
+        await client.send_file(
+            entity=channel.id,
+            file=test_file,
+            caption="Speed test file - please ignore",
+            progress_callback=progress_callback
+        )
+        
+        upload_time = time.time() - start_time
+        speed_mbps = (5 * 8) / upload_time  # Convert to Mbps (5MB * 8 bits/byte / time)
+        print(f"\n📊 Actual upload speed to Telegram: {speed_mbps:.2f} Mbps")
+        return speed_mbps
+        
+    except Exception as e:
+        print(f"❌ Speed test failed: {e}")
+        return None
+    finally:
+        if os.path.exists(test_file):
+            os.remove(test_file)
 
 def move_folder_to_done(folder_name):
     """
@@ -344,10 +449,16 @@ async def process_anime_folder(client, folder_name):
     if poster_path and os.path.exists(poster_path):
         await upload_channel_photo(client, channel, poster_path)
     
-    # Step 4: Upload all videos to the channel
+    # Step 4: Run speed test (optional)
+    run_speed_test = True  # Set to False to skip speed test
+    if run_speed_test:
+        await test_upload_speed(client, channel)
+        await asyncio.sleep(5)  # Brief pause after speed test
+    
+    # Step 5: Upload all videos to the channel
     uploaded_count = await upload_videos_to_channel(client, channel, folder_path)
     
-    # Step 5: Move folder to done directory if at least one video was uploaded
+    # Step 6: Move folder to done directory if at least one video was uploaded
     if uploaded_count > 0:
         print(f"📦 Moving folder to done directory...")
         if move_folder_to_done(folder_name):
@@ -366,15 +477,17 @@ async def main():
     """
     # Get all anime folders
     print("📁 Scanning for anime folders...")
+    print(f"📂 Looking in: {BASE_PATH}")
     anime_folders = get_anime_folders()
     
     if not anime_folders:
-        print("❌ No folders found in the specified path!")
+        print("❌ No folders found in the script directory!")
+        print("💡 Place your anime folders in the same directory as this script.")
         return
     
     print(f"📊 Found {len(anime_folders)} anime folders")
     
-    # Initialize Telegram client
+    # Initialize Telegram client (keeping your original session name)
     async with TelegramClient('session_name', API_ID, API_HASH) as client:
         print("🔗 Connecting to Telegram...")
         await client.start()
@@ -387,13 +500,23 @@ async def main():
             if await process_anime_folder(client, folder_name):
                 successful_processing += 1
             
-            # Add delay between processing folders to avoid rate limiting
+            # Increased delay between processing folders
             if i < len(anime_folders):
-                print("⏳ Waiting before processing next folder...")
-                await asyncio.sleep(10)
+                delay = random.uniform(60, 120)  # 1-2 minute delay
+                print(f"⏳ Waiting {delay:.1f} seconds before next folder...")
+                await asyncio.sleep(delay)
     
     print(f"\n🎊 All done! Successfully processed {successful_processing}/{len(anime_folders)} anime folders")
+    print(f"📁 Processed folders moved to: {DONE_PATH}")
 
 if __name__ == "__main__":
+    # Display script information
+    print("🤖 Anime Telegram Channel Creator")
+    print("=" * 50)
+    print(f"📂 Script Location: {SCRIPT_DIR}")
+    print(f"📁 Source Folder: {BASE_PATH}")
+    print(f"📦 Done Folder: {DONE_PATH}")
+    print("=" * 50)
+    
     # Run the main function
     asyncio.run(main())
