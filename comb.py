@@ -3,6 +3,7 @@ import re
 import subprocess
 import shutil
 import tempfile
+import sys
 
 def extract_episode_number(filename):
     """Extract episode number from filename"""
@@ -170,20 +171,21 @@ def run_1_script():
         print(f"❌ Error running 1.py: {e}")
 
 def main():
-    target_directory = r"F:\anime\english\new"
+    # Get the directory where this script is located
+    target_directory = os.path.dirname(os.path.abspath(__file__))
+    
+    print(f"📁 Scanning script directory: {target_directory}")
+    print("=" * 60)
     
     # Check if directory exists
     if not os.path.exists(target_directory):
         print(f"❌ Error: Directory {target_directory} does not exist!")
         return
     
-    print(f"📁 Scanning directory: {target_directory}")
-    print("=" * 60)
-    
     # Get all items in the directory
     items = os.listdir(target_directory)
     
-    # Filter only directories
+    # Filter only directories (exclude files)
     folders = [item for item in items if os.path.isdir(os.path.join(target_directory, item))]
     
     if not folders:
@@ -227,5 +229,4 @@ def main():
     run_1_script()
 
 if __name__ == "__main__":
-    import sys
     main()
