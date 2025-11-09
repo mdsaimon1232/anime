@@ -132,5 +132,5 @@ Use this tool responsibly and in accordance with local laws and copyright regula
 
 ## 💬 Author
 
-Created by **Your Name**
+Created by **No_one**
 Built for anime enthusiasts and automation lovers.
