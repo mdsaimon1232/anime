@@ -143,7 +143,7 @@ def is_english_dub(title, description="", formats=None):
     # Keywords that indicate English dub
     dub_keywords = [
         'dub', 'english dub', 'dubbed', 'english', 
-        'eng dub', 'eng', 'english audio', 'dub audio'
+        'eng dub', 'eng', 'english audio', 'dub audio', 'en'
     ]
     # Keywords that indicate sub (we want to avoid these)
     sub_keywords = [
@@ -563,3 +563,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
