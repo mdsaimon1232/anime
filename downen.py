@@ -135,102 +135,100 @@ def rename_files_for_telegram(original_file, episode_number, series_name, base_d
         print(f"Error renaming file: {e}")
         return original_file
 
-def is_english_dub(title, description="", formats=None):
-    """Improved function to check if the content is English dub"""
-    title_lower = title.lower()
-    description_lower = description.lower()
-    
-    # Keywords that indicate English dub
-    dub_keywords = [
-        'dub', 'english dub', 'dubbed', 'english', 
-        'eng dub', 'eng', 'english audio', 'dub audio', 'en'
-    ]
-    # Keywords that indicate sub (we want to avoid these)
-    sub_keywords = [
-        'sub', 'subbed', 'subtitled', 'subtitles', 
-        'japanese', 'jap audio', 'raw'
-    ]
-    
-    # Check for dub indicators
-    has_dub = any(keyword in title_lower for keyword in dub_keywords)
-    has_dub_desc = any(keyword in description_lower for keyword in dub_keywords)
-    
-    # Check for sub indicators
-    has_sub = any(keyword in title_lower for keyword in sub_keywords)
-    has_sub_desc = any(keyword in description_lower for keyword in sub_keywords)
-    
-    # NEW: Check format names for dub indicators
-    has_dub_format = False
-    if formats:
-        for fmt in formats:
-            format_note = fmt.get('format_note', '').lower()
-            format_id = fmt.get('format_id', '').lower()
-            if any(keyword in format_note for keyword in dub_keywords) or any(keyword in format_id for keyword in dub_keywords):
-                has_dub_format = True
-                break
-    
-    print(f"  Dub detection - Title: {has_dub}, Desc: {has_dub_desc}, Format: {has_dub_format}, Sub: {has_sub}")
-    
-    # If it explicitly says dub in any field, it's probably English dub
-    if has_dub or has_dub_desc or has_dub_format:
-        return True
-    
-    # If it doesn't specify sub and we're on an English site, assume dub
-    if not has_sub and not has_sub_desc:
-        print("  No sub indicators found, assuming English dub")
-        return True
-    
-    return False
-
-def get_best_480p_format(formats, prefer_dub=True):
-    """Select the best 480p format with priority for dubbed content"""
+def get_best_dub_format(formats, prefer_dub=True):
+    """
+    Select the best DUBBED format, preferably 480p.
+    Falls back to the best available dubbed format if 480p is not found.
+    """
     target_height = 480
-    best_format = None
     dub_formats = []
-    
-    # Prefer formats that are likely to be faster
-    preferred_extensions = ['mp4', 'webm', 'm4a']
-    
-    # First, collect all dubbed formats if we're preferring dub
-    if prefer_dub:
-        dub_keywords = ['dub', 'english', 'eng']
-        for fmt in formats:
-            if fmt.get('height') == target_height:
-                format_note = fmt.get('format_note', '').lower()
-                format_id = fmt.get('format_id', '').lower()
-                # Check if this format indicates dub
-                if any(keyword in format_note for keyword in dub_keywords) or any(keyword in format_id for keyword in dub_keywords):
-                    dub_formats.append(fmt)
-    
-    # If we found dubbed formats, choose from those
-    format_list = dub_formats if dub_formats and prefer_dub else formats
-    
-    for fmt in format_list:
-        if fmt.get('height') == target_height:
-            ext = fmt.get('ext', '')
-            # Score formats based on preferred characteristics
-            score = 0
+    sub_formats = []
+
+    # Classify formats as SUB or DUB based on format_id
+    for fmt in formats:
+        format_id = fmt.get('format_id', '').lower()
+        # Adjust these keywords based on what you observe in the debug logs
+        if 'dub' in format_id:
+            dub_formats.append(fmt)
+        elif 'sub' in format_id:
+            sub_formats.append(fmt)
+
+    # If we prefer dub and have dubbed formats, use those
+    if prefer_dub and dub_formats:
+        candidate_formats = dub_formats
+        print("  Targeting DUBBED formats")
+    else:
+        # Fallback: use all formats or sub formats
+        candidate_formats = formats
+        print("  Warning: No clear DUB formats found, falling back to all formats")
+
+    # Now find the best quality among candidate formats
+    best_format = None
+    for fmt in candidate_formats:
+        height = fmt.get('height')
+        # Skip if no height info
+        if not height:
+            continue
             
-            # Prefer formats with both audio and video
-            if fmt.get('acodec') != 'none' and fmt.get('vcodec') != 'none':
-                score += 100
-            
-            # Prefer certain file extensions
-            if ext in preferred_extensions:
-                score += 50
-            
-            # Bonus for dubbed formats
-            if fmt in dub_formats:
-                score += 200
-            
-            # Prefer larger filesize (usually better quality)
-            score += min(fmt.get('filesize', 0) / (1024*1024), 100)  # Max 100 points for size
-            
-            if best_format is None or score > best_format.get('_score', 0):
-                fmt['_score'] = score
+        # Strongly prefer the target height (480p)
+        if height == target_height:
+            if best_format is None or fmt.get('quality', 0) > best_format.get('quality', 0):
                 best_format = fmt
-    
+                
+    # If no 480p found, take the best available from candidates
+    if best_format is None and candidate_formats:
+        # Sort by quality, height, etc.
+        candidate_formats.sort(key=lambda x: (
+            x.get('height', 0) or 0, 
+            x.get('quality', 0)
+        ), reverse=True)
+        best_format = candidate_formats[0]
+        
+    if best_format:
+        print(f"  Selected format: {best_format.get('format_id')} ({best_format.get('height')}p)")
+    else:
+        print("  No suitable format found!")
+        
     return best_format
+
+def is_english_dub(info_dict):
+    """
+    Improved detection using format information from the extractor.
+    Returns True if DUB formats are explicitly available.
+    """
+    # Check available formats for DUB indicators
+    formats = info_dict.get('formats', [])
+    available_subs = info_dict.get('subtitles', {})
+    available_auto_subs = info_dict.get('automatic_captions', {})
+    
+    dub_format_count = 0
+    for fmt in formats:
+        format_id = fmt.get('format_id', '').lower()
+        format_note = fmt.get('format_note', '').lower()
+        
+        # Look for unambiguous DUB indicators in format metadata
+        if any(keyword in format_id for keyword in ['dub', 'english']) or \
+           any(keyword in format_note for keyword in ['dub', 'dubbed', 'english']):
+            dub_format_count += 1
+            
+    print(f"  Found {dub_format_count} format(s) with DUB indicators")
+    
+    # If we found explicit DUB formats, trust that
+    if dub_format_count > 0:
+        return True
+        
+    # Additional fallback: check title and description
+    title = info_dict.get('title', '').lower()
+    description = info_dict.get('description', '').lower()
+    
+    dub_keywords = ['dub', 'dubbed', 'english dub']
+    sub_keywords = ['sub', 'subbed', 'subtitled']
+    
+    has_dub = any(keyword in title for keyword in dub_keywords)
+    has_dub_desc = any(keyword in description for keyword in dub_keywords)
+    has_sub = any(keyword in title for keyword in sub_keywords)
+    
+    return (has_dub or has_dub_desc) and not has_sub
 
 def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram_flag=True, base_directory=None, max_retries=10):
     """Download a single video with retry logic for failed attempts"""
@@ -246,15 +244,19 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
                 description = info.get('description', '')
                 formats = info.get('formats', [])
                 
-                # IMPROVED: Check if this is English dub with format information
-                if not is_english_dub(title, description, formats):
+                # IMPROVED: Detailed format analysis
+                print("=== FORMAT ANALYSIS ===")
+                for i, fmt in enumerate(info.get('formats', [])):
+                    print(f"Format {i}: ID={fmt.get('format_id')}, "
+                          f"Note={fmt.get('format_note')}, "
+                          f"Height={fmt.get('height')}, "
+                          f"Codec={fmt.get('vcodec')}/{fmt.get('acodec')}")
+                print("=======================")
+                
+                # IMPROVED: Use the new DUB detection
+                if not is_english_dub(info):
                     print(f"⚠ Warning: This might not be English dub content")
                     print(f"Title: {title}")
-                    
-                    # Show available formats to help debug
-                    print("Available formats:")
-                    for fmt in formats[:5]:  # Show first 5 formats
-                        print(f"  - {fmt.get('format_id')}: {fmt.get('format_note')} ({fmt.get('height')}p)")
                     
                     if attempt == 1:  # Only ask on first attempt
                         user_choice = input("Do you want to continue anyway? (y/n): ")
@@ -270,27 +272,22 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
                 print(f"Downloading: {title}")
                 print(f"Series: {series_name}, Episode: {episode_number}")
                 
-                # IMPROVED: Check available formats and select 480p with dub preference
+                # IMPROVED: Use the new DUB-focused format selector
                 available_formats = info.get('formats', [])
-                best_480p = get_best_480p_format(available_formats, prefer_dub=True)
-                
-                if best_480p:
-                    format_id = best_480p['format_id']
-                    format_note = best_480p.get('format_note', 'N/A')
-                    print(f"Selected 480p format: {format_id} ({format_note}) - {best_480p.get('width')}x{best_480p.get('height')}")
-                    # Update format selection
+                print("Available format IDs:", [f.get('format_id') for f in available_formats])
+
+                # Use the new DUB-focused format selector
+                best_format = get_best_dub_format(available_formats, prefer_dub=True)
+
+                if best_format:
+                    format_id = best_format['format_id']
+                    # Check if the selected format is actually a DUB format
+                    is_dub_format = 'dub' in format_id.lower()
+                    print(f"Selected format: {format_id} (DUB: {is_dub_format})")
                     ydl_opts['format'] = format_id
                 else:
-                    print("⚠ No preferred 480p format found. Trying any 480p format...")
-                    fallback_480p = get_best_480p_format(available_formats, prefer_dub=False)
-                    if fallback_480p:
-                        format_id = fallback_480p['format_id']
-                        format_note = fallback_480p.get('format_note', 'N/A')
-                        print(f"Selected fallback 480p format: {format_id} ({format_note})")
-                        ydl_opts['format'] = format_id
-                    else:
-                        print("⚠ No 480p format found. Falling back to best available format up to 480p")
-                        ydl_opts['format'] = 'best[height<=480]'
+                    print("No suitable dubbed format found. Falling back to general format selection.")
+                    ydl_opts['format'] = 'best[height<=480]'
                 
                 # Check for available subtitles
                 available_subs = info.get('subtitles', {}) or info.get('automatic_captions', {})
@@ -385,8 +382,6 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
     
     return None
 
-# ... rest of your functions remain the same (run_comb_script, get_ydl_opts, main)
-
 def run_comb_script():
     """Run the comb.py script after all downloads are complete"""
     try:
@@ -410,10 +405,11 @@ def run_comb_script():
         print(f"✗ Error running comb.py: {e}")
 
 def get_ydl_opts(base_directory, convert_for_tg):
-    """Get yt-dlp options without built-in FFmpeg conversion"""
+    """Get yt-dlp options with DUB-focused format selection"""
     ydl_opts = {
         'outtmpl': os.path.join(base_directory, '%(series)s', '%(series)s - %(episode_number)s - %(episode)s.%(ext)s'),
         'verbose': True,
+        # Use a format selector that prioritizes DUB versions
         'format': 'best[height<=480]',
         'concurrent_fragments': 5,
         'fragment_retries': 10,
@@ -563,4 +559,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
