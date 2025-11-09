@@ -57,7 +57,7 @@ Create a new application and get API_ID and API_HASH
 
 Update these values in 1.py
 
-🎯 Usage
+## 🎯 Usage
 Step 1: Download Anime
 bash
 python3 downen.py
@@ -67,14 +67,14 @@ python3 comb.py
 Step 3: Upload to Telegram
 bash
 python3 1.py
-🔄 Complete Workflow
+## 🔄 Complete Workflow
 Run downen.py → Downloads anime from HiAnime
 
 comb.py runs automatically → Embeds subtitles
 
 Run 1.py → Creates Telegram channels and uploads content
 
-📝 Notes
+## 📝 Notes
 Use responsibly and respect copyright laws
 
 Ensure sufficient storage space
