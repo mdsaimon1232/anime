@@ -13,6 +13,7 @@ A comprehensive automation suite for downloading anime, processing videos with s
 - **Speed Optimization**: Uses aria2 for faster downloads when available
 
 ## 📁 File Structure
+
 anime-downloader/
 ├── 📄 downen.py # Main downloader script
 ├── 📄 comb.py # Subtitle processor
@@ -58,6 +59,7 @@ Create a new application and get API_ID and API_HASH
 Update these values in 1.py
 
 ## 🎯 Usage
+
 Step 1: Download Anime
 bash
 python3 downen.py
@@ -67,7 +69,9 @@ python3 comb.py
 Step 3: Upload to Telegram
 bash
 python3 1.py
+
 ## 🔄 Complete Workflow
+
 Run downen.py → Downloads anime from HiAnime
 
 comb.py runs automatically → Embeds subtitles
