@@ -135,19 +135,20 @@ def rename_files_for_telegram(original_file, episode_number, series_name, base_d
         print(f"Error renaming file: {e}")
         return original_file
 
-def get_best_dub_format(formats, prefer_dub=True):
+def get_best_dub_format_by_preference(formats, prefer_dub=True):
     """
-    Select the best DUBBED format, preferably 480p.
-    Falls back to the best available dubbed format if 480p is not found.
+    Select DUBBED format with resolution preference:
+    360p -> 480p -> 720p -> 1080p
     """
-    target_height = 480
+    # Define resolution preference order (lowest to highest)
+    resolution_preference = [360, 480, 720, 1080]
+    
     dub_formats = []
     sub_formats = []
 
     # Classify formats as SUB or DUB based on format_id
     for fmt in formats:
         format_id = fmt.get('format_id', '').lower()
-        # Adjust these keywords based on what you observe in the debug logs
         if 'dub' in format_id:
             dub_formats.append(fmt)
         elif 'sub' in format_id:
@@ -158,38 +159,24 @@ def get_best_dub_format(formats, prefer_dub=True):
         candidate_formats = dub_formats
         print("  Targeting DUBBED formats")
     else:
-        # Fallback: use all formats or sub formats
         candidate_formats = formats
         print("  Warning: No clear DUB formats found, falling back to all formats")
 
-    # Now find the best quality among candidate formats
-    best_format = None
-    for fmt in candidate_formats:
-        height = fmt.get('height')
-        # Skip if no height info
-        if not height:
-            continue
-            
-        # Strongly prefer the target height (480p)
-        if height == target_height:
-            if best_format is None or fmt.get('quality', 0) > best_format.get('quality', 0):
-                best_format = fmt
-                
-    # If no 480p found, take the best available from candidates
-    if best_format is None and candidate_formats:
-        # Sort by quality, height, etc.
-        candidate_formats.sort(key=lambda x: (
-            x.get('height', 0) or 0, 
-            x.get('quality', 0)
-        ), reverse=True)
-        best_format = candidate_formats[0]
-        
-    if best_format:
-        print(f"  Selected format: {best_format.get('format_id')} ({best_format.get('height')}p)")
-    else:
-        print("  No suitable format found!")
-        
-    return best_format
+    # Try each resolution in preference order
+    for target_res in resolution_preference:
+        for fmt in candidate_formats:
+            if fmt.get('height') == target_res:
+                print(f"  Found preferred DUB format: {fmt.get('format_id')} ({target_res}p)")
+                return fmt
+    
+    # If no preferred resolution found, return the first available dubbed format
+    if candidate_formats:
+        fallback_format = candidate_formats[0]
+        print(f"  No preferred resolution found, using fallback: {fallback_format.get('format_id')} ({fallback_format.get('height')}p)")
+        return fallback_format
+    
+    print("  No suitable DUB format found!")
+    return None
 
 def is_english_dub(info_dict):
     """
@@ -272,22 +259,24 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
                 print(f"Downloading: {title}")
                 print(f"Series: {series_name}, Episode: {episode_number}")
                 
-                # IMPROVED: Use the new DUB-focused format selector
+                # IMPROVED: Use the new resolution-preference format selector
                 available_formats = info.get('formats', [])
                 print("Available format IDs:", [f.get('format_id') for f in available_formats])
 
-                # Use the new DUB-focused format selector
-                best_format = get_best_dub_format(available_formats, prefer_dub=True)
+                # Use the new resolution-preference format selector
+                best_format = get_best_dub_format_by_preference(available_formats, prefer_dub=True)
 
                 if best_format:
                     format_id = best_format['format_id']
+                    height = best_format.get('height', 'unknown')
                     # Check if the selected format is actually a DUB format
                     is_dub_format = 'dub' in format_id.lower()
-                    print(f"Selected format: {format_id} (DUB: {is_dub_format})")
+                    print(f"Selected format: {format_id} ({height}p, DUB: {is_dub_format})")
                     ydl_opts['format'] = format_id
                 else:
-                    print("No suitable dubbed format found. Falling back to general format selection.")
-                    ydl_opts['format'] = 'best[height<=480]'
+                    print("No suitable dubbed format found. Using general format selection with resolution preference.")
+                    # Fallback that respects resolution preference
+                    ydl_opts['format'] = 'best[height<=360]/best[height<=480]/best[height<=720]/best[height<=1080]/best'
                 
                 # Check for available subtitles
                 available_subs = info.get('subtitles', {}) or info.get('automatic_captions', {})
@@ -409,8 +398,8 @@ def get_ydl_opts(base_directory, convert_for_tg):
     ydl_opts = {
         'outtmpl': os.path.join(base_directory, '%(series)s', '%(series)s - %(episode_number)s - %(episode)s.%(ext)s'),
         'verbose': True,
-        # Use a format selector that prioritizes DUB versions
-        'format': 'best[height<=480]',
+        # Use a format selector that prioritizes DUB versions with resolution preference
+        'format': 'best[height<=360]/best[height<=480]/best[height<=720]/best[height<=1080]/best',
         'concurrent_fragments': 5,
         'fragment_retries': 10,
         'ratelimit': None,
