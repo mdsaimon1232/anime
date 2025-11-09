@@ -1,10 +1,10 @@
 # Core dependencies
-yt-dlp>=2023.11.14
-requests>=2.31.0
-telethon>=1.28.5
+yt-dlp
+requests
+telethon
 
 # Optional but recommended for better performance
-aria2p>=1.2.0
+aria2p
 
 # For video processing (required for conversion and subtitle embedding)
 # Note: FFmpeg must be installed separately on your system
