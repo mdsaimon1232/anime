@@ -160,26 +160,17 @@ def classify_format(fmt):
 def get_strict_format_hierarchy(formats):
     """
     Selects format based on strict hierarchy:
-    1. DUB (High Priority)
-    2. RAW/NON-SUB (Medium Priority - "files that are not the subbed version")
-    3. SUB (Last Resort - only if everything else fails)
-    
-    Within each category, prefers 1080p -> 720p -> 480p -> 360p
+    1. CATEGORY: DUB > RAW > SUB (Always prefers Dub)
+    2. QUALITY: LOW > HIGH (Within the chosen category, picks lowest resolution first)
     """
-    # Define resolution preference order (highest to lowest for quality, or adapt as needed)
-    # The user script originally had 360 -> 1080. Assuming we want best quality now? 
-    # Let's keep the user's apparent preference for finding the right audio first.
-    # We will sort by height descending (1080 -> 360) for quality within the category.
     
     dub_formats = []
     raw_formats = [] # Formats that are NOT subbed, but not explicitly dubbed
     sub_formats = []
 
     for fmt in formats:
-        # Skip video-only or audio-only streams usually found in DASH (unless you want to merge)
-        # yt-dlp usually handles merging, but for safety in simple selection:
-        # We generally want files with both vcodec and acodec or we rely on yt-dlp to merge.
-        # For this logic, we classify everything provided.
+        # Skip video-only or audio-only streams usually found in DASH unless strictly necessary
+        # We classify everything provided.
         
         category = classify_format(fmt)
         
@@ -190,23 +181,27 @@ def get_strict_format_hierarchy(formats):
         else:
             sub_formats.append(fmt)
 
-    # Helper to sort by resolution (height) descending
-    def sort_by_res(fmt_list):
-        return sorted(fmt_list, key=lambda x: x.get('height') or 0, reverse=True)
+    # Helper to sort by resolution (height) ASCENDING (Low -> High)
+    # This ensures 360p is picked before 1080p
+    def sort_by_low_quality(fmt_list):
+        return sorted(fmt_list, key=lambda x: x.get('height') or 0, reverse=False)
 
     if dub_formats:
         print("  ✓ DETECTED: Dubbed versions available.")
-        # Return best dub
-        return sort_by_res(dub_formats)[0]
+        print("  -> Selecting LOWEST quality Dubbed version.")
+        # Return lowest quality dub
+        return sort_by_low_quality(dub_formats)[0]
     
     if raw_formats:
         print("  ⚠ No Explicit Dub found. Switching to Non-Subbed (Raw) versions.")
-        # This matches "get that which files are not the subbed version"
-        return sort_by_res(raw_formats)[0]
+        print("  -> Selecting LOWEST quality Raw version.")
+        # Return lowest quality raw
+        return sort_by_low_quality(raw_formats)[0]
         
     if sub_formats:
         print("  ⚠ Only Subbed versions found. Downloading Sub as last resort.")
-        return sort_by_res(sub_formats)[0]
+        print("  -> Selecting LOWEST quality Subbed version.")
+        return sort_by_low_quality(sub_formats)[0]
 
     return None
 
@@ -233,9 +228,6 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
                 # === NEW SELECTION LOGIC ===
                 available_formats = info.get('formats', [])
                 
-                # Debug print
-                # print("Available format IDs:", [f"{f.get('format_id')}({f.get('format_note')})" for f in available_formats])
-
                 best_format = get_strict_format_hierarchy(available_formats)
 
                 if best_format:
@@ -245,12 +237,13 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
                     
                     print(f"  ➜ SELECTED FORMAT: ID={format_id} | Res={height}p | Note={note}")
                     
-                    # FORCE this format. This prevents yt-dlp from overriding our choice
-                    # with a 'better quality' subbed video.
+                    # FORCE this format. This prevents yt-dlp from overriding our choice.
+                    # We append +bestaudio/best to ensure we get audio if the video stream is separate
                     current_opts['format'] = format_id + "+bestaudio/best" 
                 else:
-                    print("  ⚠ No suitable format found via strict logic. Using default 'best'.")
-                    current_opts['format'] = 'best'
+                    print("  ⚠ No suitable format found via strict logic. Using default 'worst' video + best audio.")
+                    # Fallback: Prefer worst video quality if manual selection fails
+                    current_opts['format'] = 'worstvideo+bestaudio/worst'
                 
                 # Check for available subtitles
                 available_subs = info.get('subtitles', {}) or info.get('automatic_captions', {})
