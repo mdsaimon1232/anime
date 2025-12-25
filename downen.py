@@ -237,13 +237,14 @@ def download_video_with_subtitles_with_retry(url, ydl_opts, convert_for_telegram
                     
                     print(f"  ➜ SELECTED FORMAT: ID={format_id} | Res={height}p | Note={note}")
                     
-                    # FORCE this format. This prevents yt-dlp from overriding our choice.
-                    # We append +bestaudio/best to ensure we get audio if the video stream is separate
-                    current_opts['format'] = format_id + "+bestaudio/best" 
+                    # FORCE this format EXACTLY. 
+                    # Do NOT append "+bestaudio" or "/best" as this causes yt-dlp to switch tracks
+                    # if the specific merge criteria aren't met.
+                    current_opts['format'] = format_id
                 else:
-                    print("  ⚠ No suitable format found via strict logic. Using default 'worst' video + best audio.")
-                    # Fallback: Prefer worst video quality if manual selection fails
-                    current_opts['format'] = 'worstvideo+bestaudio/worst'
+                    print("  ⚠ No suitable format found via strict logic.")
+                    # Fallback only if NOTHING was found
+                    current_opts['format'] = 'worst'
                 
                 # Check for available subtitles
                 available_subs = info.get('subtitles', {}) or info.get('automatic_captions', {})
